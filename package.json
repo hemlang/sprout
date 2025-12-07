@@ -1,0 +1,10 @@
+{
+  "name": "hemlang/sprout",
+  "version": "1.0.0",
+  "description": "Hemlock's package manager",
+  "author": "nbeerbower",
+  "license": "MIT",
+  "main": "sprout.hml",
+  "dependencies": {},
+  "devDependencies": {}
+}
