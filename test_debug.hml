@@ -1,0 +1,22 @@
+// Debug test for Sprout
+import { App } from "./sprout.hml";
+
+print("1. Creating app...");
+
+let app = App(null);
+
+print("2. Adding routes...");
+
+app.get("/", fn(req, res, next) {
+    print("Handler called!");
+    res.send("Hello from Sprout!");
+});
+
+print("3. Starting server on port 8080...");
+print("4. Calling app.listen...");
+
+app.listen(8080, fn() {
+    print("5. Callback called - server should be running!");
+});
+
+print("6. This should never be reached");

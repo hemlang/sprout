@@ -1,0 +1,26 @@
+// Simple server test
+import { App } from "./sprout.hml";
+
+print("Creating app...");
+
+let app = App(null);
+
+print("Adding routes...");
+
+app.get("/", fn(req, res, next) {
+    res.send("Hello from Sprout!");
+});
+
+app.get("/json", fn(req, res, next) {
+    res.json({ message: "It works!", framework: "Sprout" });
+});
+
+app.get("/users/:id", fn(req, res, next) {
+    res.json({ user_id: req.params["id"] });
+});
+
+print("Starting server on port 8080...");
+
+app.listen(8080, fn() {
+    print("Server is running on http://localhost:8080");
+});

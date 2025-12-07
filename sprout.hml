@@ -1186,7 +1186,7 @@ export fn App(options) {
         },
 
         // Start HTTP server
-        listen: fn(port, host_or_callback, callback) {
+        listen: fn(port, host_or_callback?: null, callback?: null) {
             let host = "0.0.0.0";
             let cb = null;
 
@@ -1206,8 +1206,9 @@ export fn App(options) {
             // Accept connections loop
             while (true) {
                 let stream = self._listener.accept();
-                // Handle each connection in a new task for concurrency
-                spawn(self._handle_connection, stream);
+                // Handle each connection synchronously for now
+                // TODO: Add proper async handling once spawn + self works
+                self._handle_connection(stream);
             }
         },
 
