@@ -121,6 +121,23 @@ fn rune_to_string(r) {
     return s;
 }
 
+fn buffer_to_string(buf) {
+    if (buf == null || buf.length == 0) {
+        return "";
+    }
+    // Pre-allocate string of correct length by repeating a character
+    let result = "";
+    for (let i = 0; i < buf.length; i = i + 1) {
+        result = result + " ";
+    }
+    // Now fill in the actual bytes
+    for (let i = 0; i < buf.length; i = i + 1) {
+        let b: i32 = buf[i];
+        result[i] = b;
+    }
+    return result;
+}
+
 export fn parse_query_string(qs) {
     let result = {};
     if (qs == "" || qs == null) {
@@ -1204,9 +1221,15 @@ export fn App(options) {
         // Handle a single connection
         _handle_connection: fn(stream) {
             try {
-                // Read request data
-                let data = stream.read(65536);
-                if (data == null || data == "") {
+                // Read request data (returns buffer)
+                let raw_data = stream.read(65536);
+                if (raw_data == null || raw_data.length == 0) {
+                    stream.close();
+                    return;
+                }
+                // Convert buffer to string for parsing
+                let data = buffer_to_string(raw_data);
+                if (data == "") {
                     stream.close();
                     return;
                 }
