@@ -1206,9 +1206,8 @@ export fn App(options) {
             // Accept connections loop
             while (true) {
                 let stream = self._listener.accept();
-                // Handle each connection synchronously for now
-                // TODO: Add proper async handling once spawn + self works
-                self._handle_connection(stream);
+                // Handle each connection in a detached task for concurrency
+                detach(spawn(self._handle_connection_impl, stream));
             }
         },
 
@@ -1219,8 +1218,8 @@ export fn App(options) {
             self.listen(port, callback);
         },
 
-        // Handle a single connection
-        _handle_connection: fn(stream) {
+        // Handle a single connection (implementation)
+        _handle_connection_impl: async fn(stream) {
             try {
                 // Read request data (returns buffer)
                 let raw_data = stream.read(65536);
