@@ -1,0 +1,34 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Sprout
+        uses: actions/checkout@v4
+
+      - name: Checkout Hemlock
+        uses: actions/checkout@v4
+        with:
+          repository: nbeerbower/hemlock
+          path: hemlock
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libffi-dev libssl-dev libwebsockets-dev
+
+      - name: Build Hemlock
+        working-directory: hemlock
+        run: make
+
+      - name: Run tests
+        run: |
+          ./hemlock/hemlock test_sprout.hml
