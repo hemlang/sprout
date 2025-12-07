@@ -1,0 +1,11 @@
+# Hemlock build artifacts
+*.hmlc
+*.hmlb
+*.hmlp
+
+# Packaged executables
+test-server-pkg
+sprout-example-*
+
+# Stdlib symlink
+stdlib
