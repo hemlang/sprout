@@ -1203,11 +1203,11 @@ export fn App(options) {
                 cb();
             }
 
-            // Accept connections loop
+            // Accept connections loop (synchronous - one connection at a time)
             while (true) {
                 let stream = self._listener.accept();
-                // Handle each connection in a detached task for concurrency
-                detach(spawn(self._handle_connection_impl, stream));
+                // Handle connection synchronously
+                self._handle_connection_sync(stream);
             }
         },
 
@@ -1218,8 +1218,8 @@ export fn App(options) {
             self.listen(port, callback);
         },
 
-        // Handle a single connection (implementation)
-        _handle_connection_impl: async fn(stream) {
+        // Handle a single connection synchronously
+        _handle_connection_sync: fn(stream) {
             try {
                 // Read request data (returns buffer)
                 let raw_data = stream.read(65536);
