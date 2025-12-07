@@ -1,0 +1,455 @@
+// Sprout Example Application
+// Demonstrates the Express.js style web framework for Hemlock
+
+import { App, Router, json, logger, cors, cookie_parser, static_files, error_handler } from "./sprout.hml";
+
+// Create the application
+let app = App({
+    trust_proxy: false,
+    case_sensitive_routing: false,
+    strict_routing: false
+});
+
+// ============================================================================
+// Middleware Setup
+// ============================================================================
+
+// Logging middleware
+app.use(logger("dev"));
+
+// Parse JSON bodies
+app.use(json());
+
+// Parse cookies
+app.use(cookie_parser());
+
+// CORS for API routes
+app.use("/api", cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true
+}));
+
+// ============================================================================
+// Static Files
+// ============================================================================
+
+// Serve static files from ./public directory
+app.static("/assets", "./public", {
+    max_age: 86400,
+    index: "index.html",
+    dotfiles: "ignore"
+});
+
+// ============================================================================
+// Basic Routes
+// ============================================================================
+
+// Home page
+app.get("/", fn(req, res, next) {
+    res.send("Welcome to Sprout!");
+});
+
+// About page
+app.get("/about", fn(req, res, next) {
+    res.json({
+        name: "Sprout",
+        version: "1.0.0",
+        description: "Express.js style web framework for Hemlock"
+    });
+});
+
+// ============================================================================
+// Route Parameters
+// ============================================================================
+
+// Single parameter
+app.get("/users/:id", fn(req, res, next) {
+    let user_id = req.params["id"];
+    res.json({
+        message: "Fetching user",
+        user_id: user_id
+    });
+});
+
+// Multiple parameters
+app.get("/posts/:year/:month/:slug", fn(req, res, next) {
+    res.json({
+        year: req.params["year"],
+        month: req.params["month"],
+        slug: req.params["slug"]
+    });
+});
+
+// Optional parameter
+app.get("/docs/:page?", fn(req, res, next) {
+    let page = req.params["page"];
+    if (page == null) {
+        page = "index";
+    }
+    res.json({
+        section: "documentation",
+        page: page
+    });
+});
+
+// Regex constraint parameter
+app.get("/api/:version(v1|v2)/status", fn(req, res, next) {
+    res.json({
+        api_version: req.params["version"],
+        status: "healthy"
+    });
+});
+
+// Wildcard route
+app.get("/files/*", fn(req, res, next) {
+    let file_path = req.params["*"];
+    res.json({
+        message: "File requested",
+        path: file_path
+    });
+});
+
+// ============================================================================
+// Query Parameters
+// ============================================================================
+
+app.get("/search", fn(req, res, next) {
+    let query = req.query["q"];
+    let page = req.query["page"];
+    let limit = req.query["limit"];
+
+    if (query == null) {
+        query = "";
+    }
+    if (page == null) {
+        page = "1";
+    }
+    if (limit == null) {
+        limit = "10";
+    }
+
+    res.json({
+        query: query,
+        page: page,
+        limit: limit,
+        results: []
+    });
+});
+
+// ============================================================================
+// Request Body (POST/PUT)
+// ============================================================================
+
+app.post("/api/users", fn(req, res, next) {
+    let body = req.body;
+
+    // Validate request
+    if (body == null) {
+        res.status(400).json({
+            error: "Request body is required"
+        });
+        return;
+    }
+
+    // Simulate creating user
+    res.status(201).json({
+        message: "User created",
+        user: body
+    });
+});
+
+app.put("/api/users/:id", fn(req, res, next) {
+    let user_id = req.params["id"];
+    let body = req.body;
+
+    res.json({
+        message: "User updated",
+        user_id: user_id,
+        data: body
+    });
+});
+
+app.delete("/api/users/:id", fn(req, res, next) {
+    let user_id = req.params["id"];
+
+    res.json({
+        message: "User deleted",
+        user_id: user_id
+    });
+});
+
+// ============================================================================
+// Cookies
+// ============================================================================
+
+app.get("/login", fn(req, res, next) {
+    // Set a session cookie
+    res.cookie("session", "abc123xyz", {
+        max_age: 3600,
+        http_only: true,
+        secure: false,
+        same_site: "strict"
+    });
+
+    res.json({
+        message: "Logged in",
+        session: "created"
+    });
+});
+
+app.get("/logout", fn(req, res, next) {
+    res.clear_cookie("session");
+
+    res.json({
+        message: "Logged out",
+        session: "cleared"
+    });
+});
+
+app.get("/profile", fn(req, res, next) {
+    let session = req.cookies["session"];
+
+    if (session == null) {
+        res.status(401).json({
+            error: "Not authenticated"
+        });
+        return;
+    }
+
+    res.json({
+        message: "Profile data",
+        session: session
+    });
+});
+
+// ============================================================================
+// Headers
+// ============================================================================
+
+app.get("/headers", fn(req, res, next) {
+    // Read request headers
+    let user_agent = req.get("user-agent", "Unknown");
+    let accept = req.get("accept", "*/*");
+    let auth = req.get("authorization", null);
+
+    // Set response headers
+    res.set("X-Custom-Header", "custom-value");
+    res.set("X-Request-Id", "12345");
+
+    res.json({
+        user_agent: user_agent,
+        accept: accept,
+        has_auth: auth != null
+    });
+});
+
+// ============================================================================
+// Content Negotiation
+// ============================================================================
+
+app.get("/data", fn(req, res, next) {
+    let data = {
+        name: "Sprout",
+        type: "framework"
+    };
+
+    if (req.accepts("json")) {
+        res.json(data);
+    } else {
+        res.send("Name: Sprout, Type: framework");
+    }
+});
+
+// ============================================================================
+// Redirects
+// ============================================================================
+
+app.get("/old-page", fn(req, res, next) {
+    res.redirect("/new-page");
+});
+
+app.get("/new-page", fn(req, res, next) {
+    res.send("This is the new page!");
+});
+
+app.get("/permanent-redirect", fn(req, res, next) {
+    res.redirect(301, "/final-destination");
+});
+
+app.get("/final-destination", fn(req, res, next) {
+    res.send("You have arrived!");
+});
+
+// ============================================================================
+// File Downloads
+// ============================================================================
+
+app.get("/download", fn(req, res, next) {
+    // This would download a file with a custom name
+    res.download("./files/report.pdf", "monthly-report.pdf");
+});
+
+// ============================================================================
+// Streaming Response
+// ============================================================================
+
+app.get("/stream", fn(req, res, next) {
+    res.type("text/plain");
+    res.write("Line 1\n");
+    res.write("Line 2\n");
+    res.write("Line 3\n");
+    res.end();
+});
+
+// ============================================================================
+// Sub-Router Example
+// ============================================================================
+
+// Create API router
+let api = Router();
+
+// API routes
+api.get("/info", fn(req, res, next) {
+    res.json({
+        api: "v1",
+        endpoints: ["/users", "/posts", "/comments"]
+    });
+});
+
+api.get("/users", fn(req, res, next) {
+    res.json({
+        users: [
+            { id: 1, name: "Alice" },
+            { id: 2, name: "Bob" },
+            { id: 3, name: "Charlie" }
+        ]
+    });
+});
+
+api.get("/posts", fn(req, res, next) {
+    res.json({
+        posts: [
+            { id: 1, title: "Hello World" },
+            { id: 2, title: "Getting Started with Sprout" }
+        ]
+    });
+});
+
+// Mount router at /api/v1
+app.use("/api/v1", api);
+
+// ============================================================================
+// Middleware Chain Example
+// ============================================================================
+
+// Auth middleware
+fn auth_middleware(req, res, next) {
+    let token = req.get("authorization", null);
+
+    if (token == null) {
+        res.status(401).json({
+            error: "Authorization required"
+        });
+        return;
+    }
+
+    // Simulate token validation
+    if (token == "Bearer valid-token") {
+        next();
+    } else {
+        res.status(403).json({
+            error: "Invalid token"
+        });
+    }
+}
+
+// Rate limiting middleware
+fn rate_limit_middleware(req, res, next) {
+    // Simplified rate limiting (would need state management for real implementation)
+    res.set("X-RateLimit-Limit", "100");
+    res.set("X-RateLimit-Remaining", "99");
+    next();
+}
+
+// Protected route with middleware chain
+app.get("/protected", auth_middleware, rate_limit_middleware, fn(req, res, next) {
+    res.json({
+        message: "This is protected content",
+        secret: "The cake is a lie"
+    });
+});
+
+// ============================================================================
+// All Methods Route
+// ============================================================================
+
+app.all("/echo", fn(req, res, next) {
+    res.json({
+        method: req.method,
+        path: req.path,
+        query: req.query,
+        body: req.body
+    });
+});
+
+// ============================================================================
+// Error Handling
+// ============================================================================
+
+// Route that throws an error
+app.get("/error", fn(req, res, next) {
+    throw "Intentional error for testing";
+});
+
+// Route that passes error to next
+app.get("/error-next", fn(req, res, next) {
+    next("Error passed via next()");
+});
+
+// ============================================================================
+// 404 Handler (must be last)
+// ============================================================================
+
+app.use(fn(req, res, next) {
+    res.status(404).json({
+        error: "Not Found",
+        message: "The requested resource does not exist",
+        path: req.path
+    });
+});
+
+// ============================================================================
+// Error Handler
+// ============================================================================
+
+app.use(error_handler(fn(err, req, res, next) {
+    print("Error: " + err);
+
+    res.status(500).json({
+        error: "Internal Server Error",
+        message: "" + err
+    });
+}));
+
+// ============================================================================
+// Start Server
+// ============================================================================
+
+app.listen(8080, fn() {
+    print("Sprout server running on http://localhost:8080");
+    print("");
+    print("Try these endpoints:");
+    print("  GET  /                    - Welcome page");
+    print("  GET  /about               - About info");
+    print("  GET  /users/:id           - User by ID");
+    print("  GET  /search?q=test       - Search with query");
+    print("  POST /api/users           - Create user (JSON body)");
+    print("  GET  /api/v1/info         - API router info");
+    print("  GET  /login               - Set session cookie");
+    print("  GET  /profile             - Check session cookie");
+    print("  GET  /protected           - Auth required (Bearer valid-token)");
+    print("  GET  /docs/:page?         - Optional parameter");
+    print("  GET  /files/*             - Wildcard route");
+    print("");
+});

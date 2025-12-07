@@ -1,0 +1,997 @@
+// Sprout Framework Unit Tests
+// Comprehensive test suite for the Sprout web framework
+
+import {
+    describe, test, expect,
+    before_each, after_each, run
+} from "@stdlib/testing";
+
+import {
+    // Utility functions
+    get_status_text,
+    split_once,
+    url_decode,
+    parse_query_string,
+    parse_cookies,
+    get_content_type_category,
+    get_mime_type,
+    get_extension,
+    get_basename,
+    normalize_path,
+    remove_trailing_slash,
+    // Path pattern matching
+    compile_path_pattern,
+    match_path,
+    // Request/Response
+    create_request,
+    create_response,
+    // App and Router
+    App,
+    Router,
+    // Middleware
+    json,
+    urlencoded,
+    cookie_parser,
+    cors,
+    logger,
+    error_handler
+} from "./sprout.hml";
+
+// Helper to create headers object with string keys
+fn make_headers(key1, val1, key2, val2, key3, val3) {
+    let h = {};
+    if (key1 != null) { h[key1] = val1; }
+    if (key2 != null) { h[key2] = val2; }
+    if (key3 != null) { h[key3] = val3; }
+    return h;
+}
+
+// ============================================================================
+// Utility Function Tests
+// ============================================================================
+
+describe("get_status_text", fn() {
+    test("returns correct text for common status codes", fn() {
+        expect(get_status_text(200)).to_equal("OK");
+        expect(get_status_text(201)).to_equal("Created");
+        expect(get_status_text(204)).to_equal("No Content");
+        expect(get_status_text(301)).to_equal("Moved Permanently");
+        expect(get_status_text(302)).to_equal("Found");
+        expect(get_status_text(400)).to_equal("Bad Request");
+        expect(get_status_text(401)).to_equal("Unauthorized");
+        expect(get_status_text(403)).to_equal("Forbidden");
+        expect(get_status_text(404)).to_equal("Not Found");
+        expect(get_status_text(500)).to_equal("Internal Server Error");
+    });
+
+    test("returns Unknown for invalid status codes", fn() {
+        expect(get_status_text(999)).to_equal("Unknown");
+        expect(get_status_text(0)).to_equal("Unknown");
+    });
+});
+
+describe("split_once", fn() {
+    test("splits string at first delimiter", fn() {
+        let result = split_once("key=value", "=");
+        expect(result[0]).to_equal("key");
+        expect(result[1]).to_equal("value");
+    });
+
+    test("handles multiple delimiters", fn() {
+        let result = split_once("key=value=extra", "=");
+        expect(result[0]).to_equal("key");
+        expect(result[1]).to_equal("value=extra");
+    });
+
+    test("returns original string and empty when delimiter not found", fn() {
+        let result = split_once("nodelimiter", "=");
+        expect(result[0]).to_equal("nodelimiter");
+        expect(result[1]).to_equal("");
+    });
+
+    test("handles empty string", fn() {
+        let result = split_once("", "=");
+        expect(result[0]).to_equal("");
+        expect(result[1]).to_equal("");
+    });
+});
+
+describe("url_decode", fn() {
+    test("decodes percent-encoded characters", fn() {
+        expect(url_decode("hello%20world")).to_equal("hello world");
+        expect(url_decode("%2F")).to_equal("/");
+        expect(url_decode("%3D")).to_equal("=");
+    });
+
+    test("converts plus to space", fn() {
+        expect(url_decode("hello+world")).to_equal("hello world");
+    });
+
+    test("handles mixed encoding", fn() {
+        expect(url_decode("hello+world%21")).to_equal("hello world!");
+    });
+
+    test("handles plain text", fn() {
+        expect(url_decode("hello")).to_equal("hello");
+    });
+
+    test("handles empty string", fn() {
+        expect(url_decode("")).to_equal("");
+    });
+});
+
+describe("parse_query_string", fn() {
+    test("parses simple query string", fn() {
+        let result = parse_query_string("name=john&age=30");
+        expect(result["name"]).to_equal("john");
+        expect(result["age"]).to_equal("30");
+    });
+
+    test("handles URL-encoded values", fn() {
+        let result = parse_query_string("msg=hello%20world");
+        expect(result["msg"]).to_equal("hello world");
+    });
+
+    test("handles empty value", fn() {
+        let result = parse_query_string("key=");
+        expect(result["key"]).to_equal("");
+    });
+
+    test("handles empty string", fn() {
+        let result = parse_query_string("");
+        expect(typeof(result)).to_equal("object");
+    });
+
+    test("handles null", fn() {
+        let result = parse_query_string(null);
+        expect(typeof(result)).to_equal("object");
+    });
+
+    test("handles multiple values with same key (last wins)", fn() {
+        let result = parse_query_string("key=first&key=second");
+        expect(result["key"]).to_equal("second");
+    });
+});
+
+describe("parse_cookies", fn() {
+    test("parses single cookie", fn() {
+        let result = parse_cookies("session=abc123");
+        expect(result["session"]).to_equal("abc123");
+    });
+
+    test("parses multiple cookies", fn() {
+        let result = parse_cookies("session=abc123; user=john; theme=dark");
+        expect(result["session"]).to_equal("abc123");
+        expect(result["user"]).to_equal("john");
+        expect(result["theme"]).to_equal("dark");
+    });
+
+    test("handles spaces around values", fn() {
+        let result = parse_cookies("session = abc123 ; user = john");
+        expect(result["session"]).to_equal("abc123");
+        expect(result["user"]).to_equal("john");
+    });
+
+    test("handles empty string", fn() {
+        let result = parse_cookies("");
+        expect(typeof(result)).to_equal("object");
+    });
+
+    test("handles null", fn() {
+        let result = parse_cookies(null);
+        expect(typeof(result)).to_equal("object");
+    });
+});
+
+describe("get_content_type_category", fn() {
+    test("identifies JSON content type", fn() {
+        expect(get_content_type_category("application/json")).to_equal("json");
+        expect(get_content_type_category("application/json; charset=utf-8")).to_equal("json");
+    });
+
+    test("identifies HTML content type", fn() {
+        expect(get_content_type_category("text/html")).to_equal("html");
+        expect(get_content_type_category("text/html; charset=utf-8")).to_equal("html");
+    });
+
+    test("identifies plain text content type", fn() {
+        expect(get_content_type_category("text/plain")).to_equal("text");
+    });
+
+    test("identifies URL-encoded content type", fn() {
+        expect(get_content_type_category("application/x-www-form-urlencoded")).to_equal("urlencoded");
+    });
+
+    test("identifies multipart content type", fn() {
+        expect(get_content_type_category("multipart/form-data")).to_equal("multipart");
+    });
+
+    test("identifies XML content types", fn() {
+        expect(get_content_type_category("text/xml")).to_equal("xml");
+        expect(get_content_type_category("application/xml")).to_equal("xml");
+    });
+
+    test("returns null for unknown types", fn() {
+        expect(get_content_type_category("image/png")).to_be_null();
+    });
+
+    test("returns null for null input", fn() {
+        expect(get_content_type_category(null)).to_be_null();
+    });
+});
+
+describe("get_mime_type", fn() {
+    test("returns correct MIME type for HTML", fn() {
+        expect(get_mime_type("html")).to_equal("text/html; charset=utf-8");
+        expect(get_mime_type("htm")).to_equal("text/html; charset=utf-8");
+    });
+
+    test("returns correct MIME type for CSS", fn() {
+        expect(get_mime_type("css")).to_equal("text/css; charset=utf-8");
+    });
+
+    test("returns correct MIME type for JavaScript", fn() {
+        expect(get_mime_type("js")).to_equal("application/javascript; charset=utf-8");
+    });
+
+    test("returns correct MIME type for JSON", fn() {
+        expect(get_mime_type("json")).to_equal("application/json; charset=utf-8");
+    });
+
+    test("returns correct MIME type for images", fn() {
+        expect(get_mime_type("png")).to_equal("image/png");
+        expect(get_mime_type("jpg")).to_equal("image/jpeg");
+        expect(get_mime_type("jpeg")).to_equal("image/jpeg");
+        expect(get_mime_type("gif")).to_equal("image/gif");
+        expect(get_mime_type("svg")).to_equal("image/svg+xml");
+    });
+
+    test("returns octet-stream for unknown extensions", fn() {
+        expect(get_mime_type("xyz")).to_equal("application/octet-stream");
+        expect(get_mime_type("")).to_equal("application/octet-stream");
+    });
+
+    test("is case-insensitive", fn() {
+        expect(get_mime_type("HTML")).to_equal("text/html; charset=utf-8");
+        expect(get_mime_type("JSON")).to_equal("application/json; charset=utf-8");
+    });
+});
+
+describe("get_extension", fn() {
+    test("extracts extension from filename", fn() {
+        expect(get_extension("file.txt")).to_equal("txt");
+        expect(get_extension("image.png")).to_equal("png");
+    });
+
+    test("extracts extension from path", fn() {
+        expect(get_extension("/path/to/file.js")).to_equal("js");
+        expect(get_extension("/var/www/index.html")).to_equal("html");
+    });
+
+    test("handles multiple dots", fn() {
+        expect(get_extension("file.test.js")).to_equal("js");
+        expect(get_extension("archive.tar.gz")).to_equal("gz");
+    });
+
+    test("returns empty for no extension", fn() {
+        expect(get_extension("filename")).to_equal("");
+        expect(get_extension("/path/to/file")).to_equal("");
+    });
+
+    test("handles dot in directory name", fn() {
+        expect(get_extension("/path.with.dots/filename")).to_equal("");
+    });
+});
+
+describe("get_basename", fn() {
+    test("extracts filename from path", fn() {
+        expect(get_basename("/path/to/file.txt")).to_equal("file.txt");
+        expect(get_basename("/var/www/index.html")).to_equal("index.html");
+    });
+
+    test("returns filename if no path", fn() {
+        expect(get_basename("file.txt")).to_equal("file.txt");
+    });
+
+    test("handles root path", fn() {
+        expect(get_basename("/file.txt")).to_equal("file.txt");
+    });
+
+    test("handles trailing slash", fn() {
+        expect(get_basename("/path/to/")).to_equal("");
+    });
+});
+
+describe("normalize_path", fn() {
+    test("adds leading slash if missing", fn() {
+        expect(normalize_path("path")).to_equal("/path");
+        expect(normalize_path("api/users")).to_equal("/api/users");
+    });
+
+    test("keeps leading slash if present", fn() {
+        expect(normalize_path("/path")).to_equal("/path");
+        expect(normalize_path("/api/users")).to_equal("/api/users");
+    });
+
+    test("returns root for empty string", fn() {
+        expect(normalize_path("")).to_equal("/");
+    });
+
+    test("returns root for null", fn() {
+        expect(normalize_path(null)).to_equal("/");
+    });
+});
+
+describe("remove_trailing_slash", fn() {
+    test("removes trailing slash", fn() {
+        expect(remove_trailing_slash("/path/")).to_equal("/path");
+        expect(remove_trailing_slash("/api/users/")).to_equal("/api/users");
+    });
+
+    test("keeps path without trailing slash", fn() {
+        expect(remove_trailing_slash("/path")).to_equal("/path");
+    });
+
+    test("does not remove root slash", fn() {
+        expect(remove_trailing_slash("/")).to_equal("/");
+    });
+});
+
+// ============================================================================
+// Path Pattern Matching Tests
+// ============================================================================
+
+describe("compile_path_pattern", fn() {
+    test("compiles literal path", fn() {
+        let compiled = compile_path_pattern("/users/list");
+        expect(compiled.original).to_equal("/users/list");
+        expect(compiled.segments.length).to_equal(2);
+        expect(compiled.segments[0].type).to_equal("literal");
+        expect(compiled.segments[0].value).to_equal("users");
+    });
+
+    test("compiles path with parameter", fn() {
+        let compiled = compile_path_pattern("/users/:id");
+        expect(compiled.segments.length).to_equal(2);
+        expect(compiled.segments[1].type).to_equal("param");
+        expect(compiled.segments[1].name).to_equal("id");
+        expect(compiled.segments[1].optional).to_be_false();
+    });
+
+    test("compiles path with optional parameter", fn() {
+        let compiled = compile_path_pattern("/docs/:page?");
+        expect(compiled.segments[1].type).to_equal("param");
+        expect(compiled.segments[1].name).to_equal("page");
+        expect(compiled.segments[1].optional).to_be_true();
+    });
+
+    test("compiles path with regex constraint", fn() {
+        let compiled = compile_path_pattern("/api/:version(v1|v2)/users");
+        expect(compiled.segments[1].type).to_equal("param");
+        expect(compiled.segments[1].name).to_equal("version");
+        expect(compiled.segments[1].regex).to_equal("v1|v2");
+    });
+
+    test("compiles path with wildcard", fn() {
+        let compiled = compile_path_pattern("/files/*");
+        expect(compiled.segments[1].type).to_equal("wildcard");
+    });
+});
+
+describe("match_path", fn() {
+    test("matches exact path", fn() {
+        let compiled = compile_path_pattern("/users/list");
+        let params = match_path(compiled, "/users/list", true);
+        expect(params).not_to_be_null();
+    });
+
+    test("fails on path mismatch", fn() {
+        let compiled = compile_path_pattern("/users/list");
+        let params = match_path(compiled, "/users/edit", true);
+        expect(params).to_be_null();
+    });
+
+    test("extracts single parameter", fn() {
+        let compiled = compile_path_pattern("/users/:id");
+        let params = match_path(compiled, "/users/123", true);
+        expect(params).not_to_be_null();
+        expect(params["id"]).to_equal("123");
+    });
+
+    test("extracts multiple parameters", fn() {
+        let compiled = compile_path_pattern("/posts/:year/:month/:slug");
+        let params = match_path(compiled, "/posts/2024/12/hello-world", true);
+        expect(params["year"]).to_equal("2024");
+        expect(params["month"]).to_equal("12");
+        expect(params["slug"]).to_equal("hello-world");
+    });
+
+    test("handles optional parameter when present", fn() {
+        let compiled = compile_path_pattern("/docs/:page?");
+        let params = match_path(compiled, "/docs/intro", true);
+        expect(params["page"]).to_equal("intro");
+    });
+
+    test("handles optional parameter when missing", fn() {
+        let compiled = compile_path_pattern("/docs/:page?");
+        let params = match_path(compiled, "/docs", true);
+        expect(params).not_to_be_null();
+        expect(params["page"]).to_be_null();
+    });
+
+    test("validates regex constraint", fn() {
+        let compiled = compile_path_pattern("/api/:version(v1|v2)/status");
+
+        let params1 = match_path(compiled, "/api/v1/status", true);
+        expect(params1).not_to_be_null();
+        expect(params1["version"]).to_equal("v1");
+
+        let params2 = match_path(compiled, "/api/v2/status", true);
+        expect(params2).not_to_be_null();
+        expect(params2["version"]).to_equal("v2");
+
+        let params3 = match_path(compiled, "/api/v3/status", true);
+        expect(params3).to_be_null();
+    });
+
+    test("matches wildcard and captures rest", fn() {
+        let compiled = compile_path_pattern("/files/*");
+        let params = match_path(compiled, "/files/path/to/file.txt", true);
+        expect(params).not_to_be_null();
+        expect(params["*"]).to_equal("path/to/file.txt");
+    });
+
+    test("wildcard matches empty path", fn() {
+        let compiled = compile_path_pattern("/files/*");
+        let params = match_path(compiled, "/files", true);
+        expect(params).not_to_be_null();
+        expect(params["*"]).to_equal("");
+    });
+
+    test("case insensitive matching when disabled", fn() {
+        let compiled = compile_path_pattern("/Users/List");
+        let params = match_path(compiled, "/users/list", false);
+        expect(params).not_to_be_null();
+    });
+
+    test("case sensitive matching fails on case mismatch", fn() {
+        let compiled = compile_path_pattern("/Users/List");
+        let params = match_path(compiled, "/users/list", true);
+        expect(params).to_be_null();
+    });
+
+    test("fails when path has extra segments", fn() {
+        let compiled = compile_path_pattern("/users");
+        let params = match_path(compiled, "/users/extra", true);
+        expect(params).to_be_null();
+    });
+
+    test("fails when path is missing segments", fn() {
+        let compiled = compile_path_pattern("/users/list");
+        let params = match_path(compiled, "/users", true);
+        expect(params).to_be_null();
+    });
+});
+
+// ============================================================================
+// Request Object Tests
+// ============================================================================
+
+describe("create_request", fn() {
+    let app_options = null;
+
+    before_each(fn() {
+        app_options = {
+            trust_proxy: false,
+            case_sensitive_routing: false,
+            strict_routing: false
+        };
+    });
+
+    test("creates request with basic properties", fn() {
+        let req = create_request("GET", "/users", {}, "", app_options);
+        expect(req.method).to_equal("GET");
+        expect(req.path).to_equal("/users");
+        expect(req.url).to_equal("/users");
+        expect(req.protocol).to_equal("http");
+    });
+
+    test("parses query string from URL", fn() {
+        let req = create_request("GET", "/search?q=hello&page=1", {}, "", app_options);
+        expect(req.path).to_equal("/search");
+        expect(req.query["q"]).to_equal("hello");
+        expect(req.query["page"]).to_equal("1");
+    });
+
+    test("parses cookies from header", fn() {
+        let headers = make_headers("cookie", "session=abc123; user=john", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", app_options);
+        expect(req.cookies["session"]).to_equal("abc123");
+        expect(req.cookies["user"]).to_equal("john");
+    });
+
+    test("parses JSON body", fn() {
+        let headers = make_headers("content-type", "application/json", null, null, null, null);
+        let body = "{\"name\":\"john\",\"age\":30}";
+        let req = create_request("POST", "/users", headers, body, app_options);
+        expect(req.body["name"]).to_equal("john");
+        expect(req.body["age"]).to_equal(30);
+        expect(req.raw_body).to_equal(body);
+    });
+
+    test("parses URL-encoded body", fn() {
+        let headers = make_headers("content-type", "application/x-www-form-urlencoded", null, null, null, null);
+        let body = "name=john&age=30";
+        let req = create_request("POST", "/users", headers, body, app_options);
+        expect(req.body["name"]).to_equal("john");
+        expect(req.body["age"]).to_equal("30");
+    });
+
+    test("trusts proxy headers when enabled", fn() {
+        app_options.trust_proxy = true;
+        let headers = make_headers("x-forwarded-for", "192.168.1.1, 10.0.0.1", "x-forwarded-proto", "https", null, null);
+        let req = create_request("GET", "/", headers, "", app_options);
+        expect(req.ip).to_equal("192.168.1.1");
+        expect(req.ips.length).to_equal(2);
+        expect(req.protocol).to_equal("https");
+    });
+
+    test("ignores proxy headers when disabled", fn() {
+        let headers = make_headers("x-forwarded-for", "192.168.1.1", "x-forwarded-proto", "https", null, null);
+        let req = create_request("GET", "/", headers, "", app_options);
+        expect(req.ip).to_equal("");
+        expect(req.protocol).to_equal("http");
+    });
+
+    test("get() returns header value", fn() {
+        let headers = make_headers("authorization", "Bearer token123", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", app_options);
+        expect(req.get("authorization", null)).to_equal("Bearer token123");
+        expect(req.get("Authorization", null)).to_equal("Bearer token123");
+    });
+
+    test("get() returns default for missing header", fn() {
+        let req = create_request("GET", "/", {}, "", app_options);
+        expect(req.get("authorization", "default")).to_equal("default");
+        expect(req.get("missing", null)).to_be_null();
+    });
+
+    test("has() checks header existence", fn() {
+        let headers = make_headers("authorization", "Bearer token", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", app_options);
+        expect(req.has("authorization")).to_be_true();
+        expect(req.has("x-missing")).to_be_false();
+    });
+
+    test("is() checks content type category", fn() {
+        let headers = make_headers("content-type", "application/json", null, null, null, null);
+        let req = create_request("POST", "/", headers, "{}", app_options);
+        expect(req.is("json")).to_be_true();
+        expect(req.is("html")).to_be_false();
+    });
+
+    test("accepts() checks accept header", fn() {
+        let headers = make_headers("accept", "application/json, text/html", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", app_options);
+        expect(req.accepts("json")).to_be_true();
+        expect(req.accepts("html")).to_be_true();
+        expect(req.accepts("xml")).to_be_false();
+    });
+
+    test("accepts() returns true when no accept header", fn() {
+        let req = create_request("GET", "/", {}, "", app_options);
+        expect(req.accepts("anything")).to_be_true();
+    });
+
+    test("accepts() handles wildcard", fn() {
+        let headers = make_headers("accept", "*/*", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", app_options);
+        expect(req.accepts("json")).to_be_true();
+        expect(req.accepts("html")).to_be_true();
+    });
+});
+
+// ============================================================================
+// Response Object Tests
+// ============================================================================
+
+describe("create_response", fn() {
+    let mock_stream = null;
+    let written_data = null;
+
+    before_each(fn() {
+        written_data = "";
+        mock_stream = {
+            write: fn(data) {
+                written_data = written_data + data;
+            }
+        };
+    });
+
+    test("creates response with default status 200", fn() {
+        let res = create_response(mock_stream);
+        expect(res._status).to_equal(200);
+        expect(res._sent).to_be_false();
+    });
+
+    test("status() sets status code and returns self", fn() {
+        let res = create_response(mock_stream);
+        let result = res.status(404);
+        expect(res._status).to_equal(404);
+        expect(result).to_equal(res);
+    });
+
+    test("set() sets single header", fn() {
+        let res = create_response(mock_stream);
+        res.set("X-Custom", "value");
+        expect(res._headers["x-custom"]).to_equal("value");
+    });
+
+    test("header() is alias for set()", fn() {
+        let res = create_response(mock_stream);
+        res.header("X-Custom", "value");
+        expect(res._headers["x-custom"]).to_equal("value");
+    });
+
+    test("type() sets content type from extension", fn() {
+        let res = create_response(mock_stream);
+        res.type("json");
+        expect(res._headers["content-type"]).to_equal("application/json; charset=utf-8");
+    });
+
+    test("type() sets full content type", fn() {
+        let res = create_response(mock_stream);
+        res.type("text/plain");
+        expect(res._headers["content-type"]).to_equal("text/plain");
+    });
+
+    test("cookie() adds cookie without options", fn() {
+        let res = create_response(mock_stream);
+        res.cookie("session", "abc123", null);
+        expect(res._cookies[0]).to_equal("session=abc123");
+    });
+
+    test("cookie() adds cookie with options", fn() {
+        let res = create_response(mock_stream);
+        res.cookie("session", "abc123", {
+            max_age: 3600,
+            http_only: true,
+            secure: true,
+            same_site: "strict"
+        });
+        let cookie_val = res._cookies[0];
+        expect(cookie_val.contains("Max-Age=3600")).to_be_true();
+        expect(cookie_val.contains("HttpOnly")).to_be_true();
+        expect(cookie_val.contains("Secure")).to_be_true();
+        expect(cookie_val.contains("SameSite=strict")).to_be_true();
+    });
+
+    test("clear_cookie() sets cookie with Max-Age=0", fn() {
+        let res = create_response(mock_stream);
+        res.clear_cookie("session");
+        expect(res._cookies[0]).to_equal("session=; Max-Age=0");
+    });
+
+    test("vary() sets vary header", fn() {
+        let res = create_response(mock_stream);
+        res.vary("Accept-Encoding");
+        expect(res._headers["vary"]).to_equal("Accept-Encoding");
+    });
+
+    test("vary() appends to existing vary header", fn() {
+        let res = create_response(mock_stream);
+        res.vary("Accept-Encoding");
+        res.vary("Accept-Language");
+        expect(res._headers["vary"]).to_equal("Accept-Encoding, Accept-Language");
+    });
+
+    test("send() sends string body", fn() {
+        let res = create_response(mock_stream);
+        res.send("Hello World");
+        expect(res._sent).to_be_true();
+        expect(written_data.contains("Hello World")).to_be_true();
+        expect(written_data.contains("HTTP/1.1 200 OK")).to_be_true();
+    });
+
+    test("send() auto-converts object to JSON", fn() {
+        let res = create_response(mock_stream);
+        res.send({ message: "hello" });
+        expect(written_data.contains("application/json")).to_be_true();
+    });
+
+    test("send() does nothing if already sent", fn() {
+        let res = create_response(mock_stream);
+        res.send("First");
+        let first_length = written_data.length;
+        res.send("Second");
+        expect(written_data.length).to_equal(first_length);
+    });
+
+    test("json() sends JSON response", fn() {
+        let res = create_response(mock_stream);
+        res.json({ status: "ok" });
+        expect(written_data.contains("application/json")).to_be_true();
+        expect(written_data.contains("status")).to_be_true();
+    });
+
+    test("status().json() chains correctly", fn() {
+        let res = create_response(mock_stream);
+        res.status(201).json({ created: true });
+        expect(written_data.contains("201 Created")).to_be_true();
+    });
+
+    test("redirect() sends 302 by default", fn() {
+        let res = create_response(mock_stream);
+        res.redirect("/login");
+        expect(written_data.contains("302 Found")).to_be_true();
+        expect(written_data.contains("Location: /login")).to_be_true();
+    });
+
+    test("redirect() with custom status", fn() {
+        let res = create_response(mock_stream);
+        res.redirect(301, "/new-url");
+        expect(written_data.contains("301 Moved Permanently")).to_be_true();
+        expect(written_data.contains("Location: /new-url")).to_be_true();
+    });
+
+    test("write() and end() for streaming", fn() {
+        let res = create_response(mock_stream);
+        res.write("Line 1\n");
+        res.write("Line 2\n");
+        res.end();
+        expect(res._sent).to_be_true();
+        expect(written_data.contains("Line 1")).to_be_true();
+        expect(written_data.contains("Line 2")).to_be_true();
+    });
+});
+
+// ============================================================================
+// Router Tests
+// ============================================================================
+
+describe("Router", fn() {
+    test("creates router with empty routes", fn() {
+        let router = Router();
+        expect(router._routes.length).to_equal(0);
+        expect(router._middleware.length).to_equal(0);
+    });
+
+    test("get() adds GET route", fn() {
+        let router = Router();
+        router.get("/users", fn(req, res, next) {});
+        expect(router._routes.length).to_equal(1);
+        expect(router._routes[0].method).to_equal("GET");
+        expect(router._routes[0].path).to_equal("/users");
+    });
+
+    test("post() adds POST route", fn() {
+        let router = Router();
+        router.post("/users", fn(req, res, next) {});
+        expect(router._routes[0].method).to_equal("POST");
+    });
+
+    test("put() adds PUT route", fn() {
+        let router = Router();
+        router.put("/users/:id", fn(req, res, next) {});
+        expect(router._routes[0].method).to_equal("PUT");
+    });
+
+    test("delete() adds DELETE route", fn() {
+        let router = Router();
+        router.delete("/users/:id", fn(req, res, next) {});
+        expect(router._routes[0].method).to_equal("DELETE");
+    });
+
+    test("patch() adds PATCH route", fn() {
+        let router = Router();
+        router.patch("/users/:id", fn(req, res, next) {});
+        expect(router._routes[0].method).to_equal("PATCH");
+    });
+
+    test("all() adds route for all methods", fn() {
+        let router = Router();
+        router.all("/echo", fn(req, res, next) {});
+        expect(router._routes[0].method).to_equal("*");
+    });
+
+    test("routes are chainable", fn() {
+        let router = Router();
+        let result = router
+            .get("/a", fn(req, res, next) {})
+            .post("/b", fn(req, res, next) {})
+            .put("/c", fn(req, res, next) {});
+        expect(result).to_equal(router);
+        expect(router._routes.length).to_equal(3);
+    });
+
+    test("use() adds middleware without path", fn() {
+        let router = Router();
+        router.use(fn(req, res, next) {});
+        expect(router._middleware.length).to_equal(1);
+        expect(router._middleware[0].path).to_be_null();
+    });
+
+    test("use() adds middleware with path", fn() {
+        let router = Router();
+        router.use("/api", fn(req, res, next) {});
+        expect(router._middleware[0].path).to_equal("/api");
+    });
+
+    test("supports multiple handlers per route", fn() {
+        let router = Router();
+        router.get("/test",
+            fn(req, res, next) {},
+            fn(req, res, next) {},
+            fn(req, res, next) {}
+        );
+        expect(router._routes[0].handlers.length).to_equal(3);
+    });
+});
+
+// ============================================================================
+// App Tests
+// ============================================================================
+
+describe("App", fn() {
+    test("creates app with default options", fn() {
+        let app = App(null);
+        expect(app._options.trust_proxy).to_be_false();
+        expect(app._options.case_sensitive_routing).to_be_false();
+        expect(app._options.strict_routing).to_be_false();
+    });
+
+    test("creates app with custom options", fn() {
+        let app = App({
+            trust_proxy: true,
+            case_sensitive_routing: true,
+            strict_routing: true
+        });
+        expect(app._options.trust_proxy).to_be_true();
+        expect(app._options.case_sensitive_routing).to_be_true();
+        expect(app._options.strict_routing).to_be_true();
+    });
+
+    test("has all HTTP method shortcuts", fn() {
+        let app = App(null);
+        expect(typeof(app.get)).to_equal("function");
+        expect(typeof(app.post)).to_equal("function");
+        expect(typeof(app.put)).to_equal("function");
+        expect(typeof(app.delete)).to_equal("function");
+        expect(typeof(app.patch)).to_equal("function");
+        expect(typeof(app.head)).to_equal("function");
+        expect(typeof(app.options)).to_equal("function");
+        expect(typeof(app.all)).to_equal("function");
+    });
+
+    test("get() adds GET route", fn() {
+        let app = App(null);
+        app.get("/users", fn(req, res, next) {});
+        expect(app._routes.length).to_equal(1);
+        expect(app._routes[0].method).to_equal("GET");
+    });
+
+    test("use() adds middleware", fn() {
+        let app = App(null);
+        app.use(fn(req, res, next) { next(); });
+        expect(app._middleware.length).to_equal(1);
+    });
+
+    test("use() mounts router at path", fn() {
+        let app = App(null);
+        let router = Router();
+        router.get("/users", fn(req, res, next) {});
+        app.use("/api", router);
+        expect(app._mounted_routers.length).to_equal(1);
+        expect(app._mounted_routers[0].path).to_equal("/api");
+    });
+
+    test("static() adds static route", fn() {
+        let app = App(null);
+        app.static("/assets", "./public", { max_age: 3600 });
+        expect(app._static_routes.length).to_equal(1);
+        expect(app._static_routes[0].url_path).to_equal("/assets");
+        expect(app._static_routes[0].dir_path).to_equal("./public");
+    });
+
+    test("routes are chainable", fn() {
+        let app = App(null);
+        let result = app
+            .get("/a", fn(req, res, next) {})
+            .post("/b", fn(req, res, next) {})
+            .use(fn(req, res, next) { next(); });
+        expect(result).to_equal(app);
+    });
+});
+
+// ============================================================================
+// Built-in Middleware Tests
+// ============================================================================
+
+describe("json middleware", fn() {
+    test("calls next", fn() {
+        let middleware = json();
+        let next_called = false;
+        middleware(null, null, fn() { next_called = true; });
+        expect(next_called).to_be_true();
+    });
+});
+
+describe("urlencoded middleware", fn() {
+    test("calls next", fn() {
+        let middleware = urlencoded();
+        let next_called = false;
+        middleware(null, null, fn() { next_called = true; });
+        expect(next_called).to_be_true();
+    });
+});
+
+describe("cookie_parser middleware", fn() {
+    test("calls next", fn() {
+        let middleware = cookie_parser();
+        let next_called = false;
+        middleware(null, null, fn() { next_called = true; });
+        expect(next_called).to_be_true();
+    });
+});
+
+describe("cors middleware", fn() {
+    let mock_stream = null;
+    let mock_req = null;
+    let mock_res = null;
+
+    before_each(fn() {
+        mock_stream = { write: fn(data) {} };
+        mock_req = { method: "GET" };
+        mock_res = create_response(mock_stream);
+    });
+
+    test("sets default CORS headers", fn() {
+        let middleware = cors(null);
+        let next_called = false;
+        middleware(mock_req, mock_res, fn() { next_called = true; });
+        expect(mock_res._headers["access-control-allow-origin"]).to_equal("*");
+        expect(next_called).to_be_true();
+    });
+
+    test("uses custom origin", fn() {
+        let middleware = cors({ origin: "https://example.com" });
+        middleware(mock_req, mock_res, fn() {});
+        expect(mock_res._headers["access-control-allow-origin"]).to_equal("https://example.com");
+    });
+
+    test("sets credentials header when enabled", fn() {
+        let middleware = cors({ credentials: true });
+        middleware(mock_req, mock_res, fn() {});
+        expect(mock_res._headers["access-control-allow-credentials"]).to_equal("true");
+    });
+
+    test("handles OPTIONS preflight request", fn() {
+        mock_req.method = "OPTIONS";
+        let middleware = cors(null);
+        let next_called = false;
+        middleware(mock_req, mock_res, fn() { next_called = true; });
+        expect(mock_res._status).to_equal(204);
+        expect(next_called).to_be_false();
+    });
+});
+
+describe("error_handler", fn() {
+    test("wraps handler and marks as error handler", fn() {
+        let handler = error_handler(fn(err, req, res, next) {});
+        expect(handler._is_error_handler).to_be_true();
+    });
+});
+
+// ============================================================================
+// Run Tests
+// ============================================================================
+
+let results = run({ verbose: true });
+
+if (!results.success) {
+    print("");
+    print("Tests failed!");
+} else {
+    print("");
+    print("All tests passed!");
+}

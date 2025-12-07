@@ -1,0 +1,9 @@
+// Simple test file to isolate the issue
+
+import {
+    url_decode
+} from "./sprout.hml";
+
+print("Testing url_decode...");
+print(url_decode("h"));
+print("Done!");
