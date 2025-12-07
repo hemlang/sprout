@@ -1,6 +1,6 @@
 {
   "name": "hemlang/sprout",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Hemlock's package manager",
   "author": "nbeerbower",
   "license": "MIT",
