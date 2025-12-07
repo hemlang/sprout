@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Sprout
+        uses: actions/checkout@v4
+
+      - name: Checkout Hemlock
+        uses: actions/checkout@v4
+        with:
+          repository: nbeerbower/hemlock
+          path: hemlock
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libffi-dev libssl-dev libwebsockets-dev zlib1g-dev
+
+      - name: Build Hemlock
+        working-directory: hemlock
+        run: make
+
+      - name: Run tests
+        run: ./hemlock/hemlock test_sprout.hml
+
+      - name: Create example app package
+        run: |
+          # Package the example server as a standalone executable
+          HEMLOCK_STDLIB_PATH=./hemlock/stdlib ./hemlock/hemlock --package test_server.hml -o sprout-example-linux-x64
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Sprout ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## Sprout ${{ steps.version.outputs.VERSION }}
+
+            Express.js-style web framework for Hemlock.
+
+            ### Installation
+
+            Copy `sprout.hml` to your project and import it:
+            ```javascript
+            import { App } from "./sprout.hml";
+
+            let app = App(null);
+            app.get("/", fn(req, res, next) {
+                res.send("Hello World!");
+            });
+            app.listen(8080);
+            ```
+
+            ### Artifacts
+
+            - `sprout.hml` - The framework source (import this in your project)
+            - `sprout-example-linux-x64` - Standalone example server binary for Linux x64
+          files: |
+            sprout.hml
+            sprout-example-linux-x64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
