@@ -1,4 +1,4 @@
-# Sprout
+# 🌱 Sprout
 
 > Express.js-style web framework for the Hemlock programming language
 
