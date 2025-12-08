@@ -18,7 +18,7 @@ Sprout is a lightweight, fast, and flexible web framework that brings the famili
 ## Quick Start
 
 ```hemlock
-import { App } from "./sprout.hml";
+import { App } from "hemlang/sprout";
 
 let app = App(null);
 
@@ -38,10 +38,16 @@ app.listen(3000, fn() {
 
 ## Installation
 
-Copy `sprout.hml` to your project directory and import it:
+Install via [hpm](https://github.com/hemlang/hpm):
+
+```bash
+hpm install hemlang/sprout
+```
+
+Then import in your code:
 
 ```hemlock
-import { App, Router, json, cors, logger } from "./sprout.hml";
+import { App, Router, json, cors, logger } from "hemlang/sprout";
 ```
 
 ## API Reference
