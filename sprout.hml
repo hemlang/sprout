@@ -1197,7 +1197,13 @@ export fn App(options) {
                 cb = callback;
             }
 
-            self._listener = TcpListener(host, port);
+            try {
+                self._listener = TcpListener(host, port);
+            } catch (e) {
+                print("Error: Failed to start server on " + host + ":" + port);
+                print("  " + e);
+                exit(1);
+            }
 
             if (cb != null) {
                 cb();
