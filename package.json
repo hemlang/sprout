@@ -1,6 +1,6 @@
 {
   "name": "hemlang/sprout",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "express-like web framework for hemlock",
   "author": "nbeerbower",
   "license": "MIT",
