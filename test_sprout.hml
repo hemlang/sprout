@@ -983,6 +983,324 @@ describe("error_handler", fn() {
 });
 
 // ============================================================================
+// New Feature Tests
+// ============================================================================
+
+describe("res.sendStatus", fn() {
+    let mock_stream = null;
+    let res = null;
+
+    before_each(fn() {
+        mock_stream = {
+            write: fn(data) { self._data = data; },
+            _data: ""
+        };
+        res = create_response(mock_stream);
+    });
+
+    test("sends status code with status text as body", fn() {
+        res.sendStatus(404);
+        expect(res._sent).to_be_true();
+        expect(res._status).to_equal(404);
+        expect(mock_stream._data.contains("Not Found")).to_be_true();
+    });
+
+    test("sends 200 OK", fn() {
+        res.sendStatus(200);
+        expect(res._status).to_equal(200);
+        expect(mock_stream._data.contains("OK")).to_be_true();
+    });
+
+    test("sends 500 Internal Server Error", fn() {
+        res.sendStatus(500);
+        expect(res._status).to_equal(500);
+        expect(mock_stream._data.contains("Internal Server Error")).to_be_true();
+    });
+});
+
+describe("res.locals", fn() {
+    test("response has locals object", fn() {
+        let mock_stream = { write: fn(data) {} };
+        let res = create_response(mock_stream);
+        expect(res.locals).to_not_be_null();
+    });
+
+    test("can set and get locals values", fn() {
+        let mock_stream = { write: fn(data) {} };
+        let res = create_response(mock_stream);
+        res.locals["user"] = "test_user";
+        expect(res.locals["user"]).to_equal("test_user");
+    });
+});
+
+describe("app.locals", fn() {
+    test("app has locals object", fn() {
+        let app = App(null);
+        expect(app.locals).to_not_be_null();
+    });
+
+    test("can set and get app locals values", fn() {
+        let app = App(null);
+        app.locals["appName"] = "TestApp";
+        expect(app.locals["appName"]).to_equal("TestApp");
+    });
+});
+
+describe("res.append", fn() {
+    let mock_stream = null;
+    let res = null;
+
+    before_each(fn() {
+        mock_stream = { write: fn(data) {} };
+        res = create_response(mock_stream);
+    });
+
+    test("sets header if not exists", fn() {
+        res.append("X-Custom", "value1");
+        expect(res._headers["x-custom"]).to_equal("value1");
+    });
+
+    test("appends to existing header", fn() {
+        res.append("X-Custom", "value1");
+        res.append("X-Custom", "value2");
+        expect(res._headers["x-custom"]).to_equal("value1, value2");
+    });
+
+    test("returns self for chaining", fn() {
+        let result = res.append("X-Test", "test");
+        expect(result).to_equal(res);
+    });
+});
+
+describe("res.location", fn() {
+    let mock_stream = null;
+    let res = null;
+
+    before_each(fn() {
+        mock_stream = { write: fn(data) {} };
+        res = create_response(mock_stream);
+    });
+
+    test("sets location header", fn() {
+        res.location("/new-path");
+        expect(res._headers["location"]).to_equal("/new-path");
+    });
+
+    test("returns self for chaining", fn() {
+        let result = res.location("/test");
+        expect(result).to_equal(res);
+    });
+
+    test("does not send response", fn() {
+        res.location("/path");
+        expect(res._sent).to_be_false();
+    });
+});
+
+describe("res.links", fn() {
+    let mock_stream = null;
+    let res = null;
+
+    before_each(fn() {
+        mock_stream = { write: fn(data) {} };
+        res = create_response(mock_stream);
+    });
+
+    test("sets link header with next", fn() {
+        res.links({ next: "/page/2" });
+        expect(res._headers["link"]).to_equal("</page/2>; rel=\"next\"");
+    });
+
+    test("sets link header with prev", fn() {
+        res.links({ prev: "/page/1" });
+        expect(res._headers["link"]).to_equal("</page/1>; rel=\"prev\"");
+    });
+
+    test("sets multiple link relations", fn() {
+        res.links({ next: "/page/2", prev: "/page/1" });
+        let link = res._headers["link"];
+        expect(link.contains("</page/2>; rel=\"next\"")).to_be_true();
+        expect(link.contains("</page/1>; rel=\"prev\"")).to_be_true();
+    });
+
+    test("returns self for chaining", fn() {
+        let result = res.links({ next: "/test" });
+        expect(result).to_equal(res);
+    });
+});
+
+describe("req.hostname", fn() {
+    test("extracts hostname from host header", fn() {
+        let headers = make_headers("host", "example.com:3000", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: false });
+        expect(req.hostname).to_equal("example.com");
+    });
+
+    test("handles host without port", fn() {
+        let headers = make_headers("host", "example.com", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: false });
+        expect(req.hostname).to_equal("example.com");
+    });
+
+    test("uses x-forwarded-host when trust_proxy enabled", fn() {
+        let headers = make_headers("host", "localhost", "x-forwarded-host", "real.example.com", null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: true });
+        expect(req.hostname).to_equal("real.example.com");
+    });
+});
+
+describe("req.subdomains", fn() {
+    test("extracts subdomains from hostname", fn() {
+        let headers = make_headers("host", "api.v2.example.com", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: false });
+        expect(req.subdomains.length).to_equal(2);
+        expect(req.subdomains[0]).to_equal("api");
+        expect(req.subdomains[1]).to_equal("v2");
+    });
+
+    test("returns empty array for two-part hostname", fn() {
+        let headers = make_headers("host", "example.com", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: false });
+        expect(req.subdomains.length).to_equal(0);
+    });
+});
+
+describe("req.xhr", fn() {
+    test("returns true for XMLHttpRequest", fn() {
+        let headers = make_headers("x-requested-with", "XMLHttpRequest", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: false });
+        expect(req.xhr).to_be_true();
+    });
+
+    test("returns false without x-requested-with header", fn() {
+        let headers = make_headers(null, null, null, null, null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: false });
+        expect(req.xhr).to_be_false();
+    });
+
+    test("is case insensitive", fn() {
+        let headers = make_headers("x-requested-with", "xmlhttprequest", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: false });
+        expect(req.xhr).to_be_true();
+    });
+});
+
+describe("app.notFound", fn() {
+    test("sets not found handler", fn() {
+        let app = App(null);
+        let handler = fn(req, res) {};
+        app.notFound(handler);
+        expect(app._not_found_handler).to_equal(handler);
+    });
+
+    test("returns self for chaining", fn() {
+        let app = App(null);
+        let result = app.notFound(fn(req, res) {});
+        expect(result).to_equal(app);
+    });
+});
+
+describe("app.param", fn() {
+    test("registers parameter handler", fn() {
+        let app = App(null);
+        let handler = fn(req, res, next, val, name) {};
+        app.param("id", handler);
+        expect(app._param_handlers["id"]).to_equal(handler);
+    });
+
+    test("returns self for chaining", fn() {
+        let app = App(null);
+        let result = app.param("id", fn(req, res, next, val, name) {});
+        expect(result).to_equal(app);
+    });
+});
+
+describe("app body_limit option", fn() {
+    test("uses default body limit", fn() {
+        let app = App(null);
+        expect(app._options.body_limit).to_equal(102400);
+    });
+
+    test("accepts custom body limit", fn() {
+        let app = App({ body_limit: 50000 });
+        expect(app._options.body_limit).to_equal(50000);
+    });
+});
+
+describe("req.fresh and req.stale", fn() {
+    test("fresh returns false for non-GET/HEAD requests", fn() {
+        let headers = make_headers(null, null, null, null, null, null);
+        let req = create_request("POST", "/", headers, "", { trust_proxy: false });
+        expect(req.fresh("\"abc123\"", null)).to_be_false();
+    });
+
+    test("fresh returns true when etag matches", fn() {
+        let headers = make_headers("if-none-match", "\"abc123\"", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: false });
+        expect(req.fresh("\"abc123\"", null)).to_be_true();
+    });
+
+    test("fresh handles weak etag comparison", fn() {
+        let headers = make_headers("if-none-match", "W/\"abc123\"", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: false });
+        expect(req.fresh("\"abc123\"", null)).to_be_true();
+    });
+
+    test("fresh returns true for wildcard etag", fn() {
+        let headers = make_headers("if-none-match", "*", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: false });
+        expect(req.fresh("\"abc123\"", null)).to_be_true();
+    });
+
+    test("stale returns opposite of fresh", fn() {
+        let headers = make_headers("if-none-match", "\"abc123\"", null, null, null, null);
+        let req = create_request("GET", "/", headers, "", { trust_proxy: false });
+        expect(req.stale("\"abc123\"", null)).to_be_false();
+        expect(req.stale("\"different\"", null)).to_be_true();
+    });
+});
+
+describe("res.etag", fn() {
+    let mock_stream = null;
+    let res = null;
+
+    before_each(fn() {
+        mock_stream = { write: fn(data) {} };
+        res = create_response(mock_stream);
+    });
+
+    test("sets etag header", fn() {
+        res.etag("\"abc123\"");
+        expect(res._headers["etag"]).to_equal("\"abc123\"");
+    });
+
+    test("returns self for chaining", fn() {
+        let result = res.etag("\"test\"");
+        expect(result).to_equal(res);
+    });
+});
+
+describe("res.lastModified", fn() {
+    let mock_stream = null;
+    let res = null;
+
+    before_each(fn() {
+        mock_stream = { write: fn(data) {} };
+        res = create_response(mock_stream);
+    });
+
+    test("sets last-modified header", fn() {
+        res.lastModified("Wed, 21 Oct 2015 07:28:00 GMT");
+        expect(res._headers["last-modified"]).to_equal("Wed, 21 Oct 2015 07:28:00 GMT");
+    });
+
+    test("returns self for chaining", fn() {
+        let result = res.lastModified("Wed, 21 Oct 2015 07:28:00 GMT");
+        expect(result).to_equal(res);
+    });
+});
+
+// ============================================================================
 // Run Tests
 // ============================================================================
 
