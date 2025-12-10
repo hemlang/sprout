@@ -121,6 +121,30 @@ fn rune_to_string(r) {
     return s;
 }
 
+fn parse_int(s) {
+    let result = 0;
+    let negative = false;
+    let start = 0;
+    if (s.length > 0 && s.char_at(0) == '-') {
+        negative = true;
+        start = 1;
+    }
+    for (let i = start; i < s.length; i = i + 1) {
+        let ch = s.char_at(i);
+        let ch_code: i32 = ch;
+        let zero_code: i32 = '0';
+        if (ch >= '0' && ch <= '9') {
+            result = result * 10 + (ch_code - zero_code);
+        } else {
+            break;
+        }
+    }
+    if (negative) {
+        return -result;
+    }
+    return result;
+}
+
 fn buffer_to_string(buf) {
     if (buf == null || buf.length == 0) {
         return "";
@@ -507,11 +531,45 @@ export fn create_request(method, url, headers, body, app_options) {
         protocol = to_lower(headers["x-forwarded-proto"]);
     }
 
+    // Get hostname from Host header
+    let hostname = "";
+    let subdomains = [];
+    let host_header = headers["host"];
+    if (app_options.trust_proxy && headers["x-forwarded-host"] != null) {
+        host_header = headers["x-forwarded-host"];
+    }
+    if (host_header != null) {
+        // Remove port if present
+        let colon_idx = host_header.find(":");
+        if (colon_idx != -1) {
+            hostname = host_header.substr(0, colon_idx);
+        } else {
+            hostname = host_header;
+        }
+        // Parse subdomains (all parts except last 2)
+        let parts = hostname.split(".");
+        if (parts.length > 2) {
+            for (let i = 0; i < parts.length - 2; i = i + 1) {
+                subdomains.push(parts[i]);
+            }
+        }
+    }
+
+    // Check if XHR request
+    let xhr = false;
+    let x_requested = headers["x-requested-with"];
+    if (x_requested != null && to_lower(x_requested) == "xmlhttprequest") {
+        xhr = true;
+    }
+
     return {
         method: method,
         path: path,
         url: url,
         protocol: protocol,
+        hostname: hostname,
+        subdomains: subdomains,
+        xhr: xhr,
         headers: headers,
         query: query,
         cookies: cookies,
@@ -567,6 +625,52 @@ export fn create_request(method, url, headers, body, app_options) {
                 return accept.contains("text/plain") || accept.contains("text/*") || accept.contains("*/*");
             }
             return accept.contains(type_name);
+        },
+
+        // Check if request is fresh (client cache is valid)
+        // Pass the ETag and/or last_modified that will be sent in response
+        fresh: fn(etag, last_modified) {
+            // Only GET and HEAD requests can be fresh
+            if (self.method != "GET" && self.method != "HEAD") {
+                return false;
+            }
+
+            // Check If-None-Match header against ETag
+            let if_none_match = self.headers["if-none-match"];
+            if (if_none_match != null && etag != null) {
+                // Handle weak ETags and wildcards
+                if (if_none_match == "*") {
+                    return true;
+                }
+                // Remove W/ prefix for comparison
+                let client_etag = if_none_match;
+                if (client_etag.starts_with("W/")) {
+                    client_etag = client_etag.substr(2, client_etag.length - 2);
+                }
+                let server_etag = etag;
+                if (server_etag.starts_with("W/")) {
+                    server_etag = server_etag.substr(2, server_etag.length - 2);
+                }
+                if (client_etag == server_etag) {
+                    return true;
+                }
+            }
+
+            // Check If-Modified-Since header
+            let if_modified_since = self.headers["if-modified-since"];
+            if (if_modified_since != null && last_modified != null) {
+                // Simple string comparison (works for RFC 2822 dates)
+                if (if_modified_since == last_modified) {
+                    return true;
+                }
+            }
+
+            return false;
+        },
+
+        // Check if request is stale (opposite of fresh)
+        stale: fn(etag, last_modified) {
+            return !self.fresh(etag, last_modified);
         }
     };
 }
@@ -586,11 +690,20 @@ export fn create_response(stream) {
         _sent: false,
         _cookies: [],
         _chunks: [],
+        locals: {},
 
         // Set status code (chainable)
         status: fn(code) {
             self._status = code;
             return self;
+        },
+
+        // Send status code with status text as body
+        sendStatus: fn(code) {
+            self._status = code;
+            let text = get_status_text(code);
+            self._headers["content-type"] = "text/plain; charset=utf-8";
+            self._send_response(text);
         },
 
         // Set header (chainable)
@@ -618,6 +731,24 @@ export fn create_response(stream) {
             return self.set(name, value);
         },
 
+        // Append value to header (creates or appends)
+        append: fn(name, value) {
+            let lower_name = to_lower(name);
+            let existing = self._headers[lower_name];
+            if (existing == null || existing == "") {
+                self._headers[lower_name] = value;
+            } else {
+                self._headers[lower_name] = existing + ", " + value;
+            }
+            return self;
+        },
+
+        // Set Location header without redirect
+        location: fn(url) {
+            self._headers["location"] = url;
+            return self;
+        },
+
         // Set content type
         type: fn(content_type) {
             if (!content_type.contains("/")) {
@@ -625,6 +756,18 @@ export fn create_response(stream) {
                 content_type = get_mime_type(content_type);
             }
             self._headers["content-type"] = content_type;
+            return self;
+        },
+
+        // Set ETag header
+        etag: fn(value) {
+            self._headers["etag"] = value;
+            return self;
+        },
+
+        // Set Last-Modified header
+        lastModified: fn(value) {
+            self._headers["last-modified"] = value;
             return self;
         },
 
@@ -667,6 +810,29 @@ export fn create_response(stream) {
                 self._headers["vary"] = header_name;
             } else {
                 self._headers["vary"] = existing + ", " + header_name;
+            }
+            return self;
+        },
+
+        // Set Link header for pagination/relations
+        // Usage: res.links({ next: "/page/2", prev: "/page/1" })
+        links: fn(links_obj) {
+            let parts = [];
+            // Handle common link relations
+            if (links_obj["next"] != null) {
+                parts.push("<" + links_obj["next"] + ">; rel=\"next\"");
+            }
+            if (links_obj["prev"] != null) {
+                parts.push("<" + links_obj["prev"] + ">; rel=\"prev\"");
+            }
+            if (links_obj["first"] != null) {
+                parts.push("<" + links_obj["first"] + ">; rel=\"first\"");
+            }
+            if (links_obj["last"] != null) {
+                parts.push("<" + links_obj["last"] + ">; rel=\"last\"");
+            }
+            if (parts.length > 0) {
+                self._headers["link"] = parts.join(", ");
             }
             return self;
         },
@@ -843,6 +1009,12 @@ export fn create_response(stream) {
             if (self._headers["cache-control"] != null) {
                 response = response + "Cache-Control: " + self._headers["cache-control"] + "\r\n";
             }
+            if (self._headers["etag"] != null) {
+                response = response + "ETag: " + self._headers["etag"] + "\r\n";
+            }
+            if (self._headers["last-modified"] != null) {
+                response = response + "Last-Modified: " + self._headers["last-modified"] + "\r\n";
+            }
             if (self._headers["vary"] != null) {
                 response = response + "Vary: " + self._headers["vary"] + "\r\n";
             }
@@ -869,6 +1041,9 @@ export fn create_response(stream) {
             }
             if (self._headers["x-custom"] != null) {
                 response = response + "X-Custom: " + self._headers["x-custom"] + "\r\n";
+            }
+            if (self._headers["link"] != null) {
+                response = response + "Link: " + self._headers["link"] + "\r\n";
             }
 
             // Add cookies
@@ -1018,7 +1193,8 @@ export fn App(options) {
     let app_options = {
         trust_proxy: false,
         case_sensitive_routing: false,
-        strict_routing: false
+        strict_routing: false,
+        body_limit: 102400
     };
 
     if (options["trust_proxy"] == true) {
@@ -1030,6 +1206,9 @@ export fn App(options) {
     if (options["strict_routing"] == true) {
         app_options.strict_routing = true;
     }
+    if (options["body_limit"] != null) {
+        app_options.body_limit = options["body_limit"];
+    }
 
     let app = {
         _options: app_options,
@@ -1038,7 +1217,10 @@ export fn App(options) {
         _error_handlers: [],
         _mounted_routers: [],
         _static_routes: [],
+        _param_handlers: {},
+        _not_found_handler: null,
         _listener: null,
+        locals: {},
 
         // Add route for specific method
         _add_route: fn(method, path, handlers) {
@@ -1180,6 +1362,19 @@ export fn App(options) {
             return self;
         },
 
+        // Set custom 404 not found handler
+        notFound: fn(handler) {
+            self._not_found_handler = handler;
+            return self;
+        },
+
+        // Register parameter preprocessing handler
+        // Usage: app.param("id", fn(req, res, next, value, name) { ... })
+        param: fn(name, handler) {
+            self._param_handlers[name] = handler;
+            return self;
+        },
+
         // Get underlying server
         server: fn() {
             return self._listener;
@@ -1227,8 +1422,9 @@ export fn App(options) {
         // Handle a single connection synchronously
         _handle_connection_sync: fn(stream) {
             try {
-                // Read request data (returns buffer)
-                let raw_data = stream.read(65536);
+                // Read request data (returns buffer) - use body_limit + header overhead
+                let read_limit = self._options.body_limit + 8192;
+                let raw_data = stream.read(read_limit);
                 if (raw_data == null || raw_data.length == 0) {
                     stream.close();
                     return;
@@ -1245,6 +1441,28 @@ export fn App(options) {
                 if (req_data == null) {
                     stream.close();
                     return;
+                }
+
+                // Check content-length against body_limit
+                let content_length = req_data.headers["content-length"];
+                if (content_length != null) {
+                    let cl_num = 0;
+                    try {
+                        cl_num = parse_int(content_length);
+                    } catch (e) {
+                        cl_num = 0;
+                    }
+                    if (cl_num > self._options.body_limit) {
+                        // Payload too large
+                        let error_response = "HTTP/1.1 413 Payload Too Large\r\n";
+                        error_response = error_response + "Content-Type: text/plain\r\n";
+                        error_response = error_response + "Content-Length: 16\r\n";
+                        error_response = error_response + "Connection: close\r\n\r\n";
+                        error_response = error_response + "Payload Too Large";
+                        stream.write(error_response);
+                        stream.close();
+                        return;
+                    }
                 }
 
                 // Create request and response objects
@@ -1485,8 +1703,16 @@ export fn App(options) {
                         // Look for error handler
                         self._handle_error(error, req, res);
                     } else if (!res._sent) {
-                        // No handler found - 404
-                        res.status(404).send("Not Found");
+                        // No handler found - use custom 404 handler or default
+                        if (self._not_found_handler != null) {
+                            try {
+                                self._not_found_handler(req, res);
+                            } catch (e) {
+                                res.status(404).send("Not Found");
+                            }
+                        } else {
+                            res.status(404).send("Not Found");
+                        }
                     }
                     return;
                 }
@@ -1496,6 +1722,31 @@ export fn App(options) {
 
                 // Update request params
                 req.params = current.params;
+
+                // Run param handlers for any matched params
+                let param_names = ["id", "userId", "postId", "slug", "name", "uuid", "key", "token"];
+                for (let pname in param_names) {
+                    if (current.params[pname] != null && self._param_handlers[pname] != null) {
+                        try {
+                            let param_handler = self._param_handlers[pname];
+                            let pvalue = current.params[pname];
+                            let continue_chain = true;
+                            let param_next = fn(err) {
+                                if (err != null) {
+                                    error = err;
+                                    continue_chain = false;
+                                }
+                            };
+                            param_handler(req, res, param_next, pvalue, pname);
+                            if (!continue_chain || res._sent) {
+                                return;
+                            }
+                        } catch (e) {
+                            next(e);
+                            return;
+                        }
+                    }
+                }
 
                 // Execute handler
                 try {
