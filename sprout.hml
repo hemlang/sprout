@@ -3,6 +3,7 @@
 
 import { TcpListener, TcpStream } from "@stdlib/net";
 import { parse as json_parse, stringify as json_stringify } from "@stdlib/json";
+import { open } from "@stdlib/fs";
 
 // ============================================================================
 // HTTP Status Codes
