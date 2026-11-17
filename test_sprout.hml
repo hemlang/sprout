@@ -234,6 +234,11 @@ describe("get_mime_type", fn() {
         expect(get_mime_type("js")).to_equal("application/javascript; charset=utf-8");
     });
 
+    test("treats \"text\" as text/plain, like req.is/accepts", fn() {
+        expect(get_mime_type("text")).to_equal("text/plain; charset=utf-8");
+        expect(get_mime_type("txt")).to_equal("text/plain; charset=utf-8");
+    });
+
     test("returns correct MIME type for JSON", fn() {
         expect(get_mime_type("json")).to_equal("application/json; charset=utf-8");
     });

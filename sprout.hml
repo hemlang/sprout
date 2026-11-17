@@ -4,6 +4,7 @@
 import { TcpListener, TcpStream } from "@stdlib/net";
 import { parse as json_parse, stringify as json_stringify } from "@stdlib/json";
 import { open } from "@stdlib/fs";
+import { exit } from "@stdlib/env";
 
 // ============================================================================
 // HTTP Status Codes
@@ -214,7 +215,7 @@ export fn get_mime_type(extension) {
     if (ext == "svg") { return "image/svg+xml"; }
     if (ext == "ico") { return "image/x-icon"; }
     if (ext == "pdf") { return "application/pdf"; }
-    if (ext == "txt") { return "text/plain; charset=utf-8"; }
+    if (ext == "txt" || ext == "text") { return "text/plain; charset=utf-8"; }
     if (ext == "xml") { return "application/xml; charset=utf-8"; }
     if (ext == "woff") { return "font/woff"; }
     if (ext == "woff2") { return "font/woff2"; }
