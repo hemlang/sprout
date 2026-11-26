@@ -17,7 +17,7 @@ jobs:
       - name: Checkout Hemlock
         uses: actions/checkout@v4
         with:
-          repository: nbeerbower/hemlock
+          repository: hemlang/hemlock
           path: hemlock
 
       - name: Install dependencies

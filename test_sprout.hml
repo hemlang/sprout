@@ -6,6 +6,8 @@ import {
     before_each, after_each, run
 } from "@stdlib/testing";
 
+import { exit } from "@stdlib/env";
+
 import {
     // Utility functions
     get_status_text,
@@ -996,6 +998,7 @@ let results = run({ verbose: true });
 if (!results.success) {
     print("");
     print("Tests failed!");
+    exit(1);
 } else {
     print("");
     print("All tests passed!");
